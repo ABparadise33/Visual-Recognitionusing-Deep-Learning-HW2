@@ -60,7 +60,7 @@ def get_args_parser():
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=8, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=300, type=int,
+    parser.add_argument('--num_queries', default=30, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -197,9 +197,11 @@ def main(args):
         if args.output_dir:
             utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
         return
+    
 
     print("Start training")
     start_time = time.time()
+    best_map = 0.0
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
@@ -224,7 +226,21 @@ def main(args):
         test_stats, coco_evaluator = evaluate(
             model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
         )
-
+        
+        if coco_evaluator is not None and args.output_dir and utils.is_main_process():
+            # stats[0] 對應的就是 COCO AP (IoU=0.50:0.95)
+            current_map = coco_evaluator.coco_eval["bbox"].stats[0]
+            if current_map > best_map:
+                best_map = current_map
+                utils.save_on_master({
+                    'model': model_without_ddp.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'lr_scheduler': lr_scheduler.state_dict(),
+                    'epoch': epoch,
+                    'args': args,
+                }, output_dir / 'checkpoint_best.pth')
+                print(f"\n>>> 發現更高的 mAP: {best_map:.4f}！已儲存為 checkpoint_best.pth <<<\n")
+        
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
                      'epoch': epoch,

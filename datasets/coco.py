@@ -19,7 +19,39 @@ import torch.utils.data
 import torchvision
 from pycocotools import mask as coco_mask
 
+import random
 import datasets.transforms as T
+import torchvision.transforms as standard_T
+
+class CustomColorJitter(object):
+    def __init__(self, p=0.5, brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1):
+        self.p = p
+        self.jitter = standard_T.ColorJitter(brightness, contrast, saturation, hue)
+
+    def __call__(self, image, target):
+        if random.random() < self.p:
+            image = self.jitter(image)
+        return image, target
+
+class CustomGaussianBlur(object):
+    def __init__(self, p=0.3, kernel_size=5, sigma=(0.1, 2.0)):
+        self.p = p
+        self.blur = standard_T.GaussianBlur(kernel_size, sigma)
+
+    def __call__(self, image, target):
+        if random.random() < self.p:
+            image = self.blur(image)
+        return image, target
+
+class CustomRandomGrayscale(object):
+    def __init__(self, p=0.2):  # p=1.0 代表只要觸發，就一定轉灰階，機率由外層控制
+        self.p = p
+        self.grayscale = standard_T.RandomGrayscale(p=1.0)
+
+    def __call__(self, image, target):
+        if random.random() < self.p:
+            image = self.grayscale(image)
+        return image, target
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -121,31 +153,36 @@ class ConvertCocoPolysToMask(object):
 
 
 def make_coco_transforms(image_set):
-
     normalize = T.Compose([
         T.ToTensor(),
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-    scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+    # 定義針對數字辨識的短邊縮放範圍
+    scales = [128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512]
 
     if image_set == 'train':
         return T.Compose([
-            T.RandomHorizontalFlip(),
+            # 隨機多尺度縮放：確保短邊落在 scales 中，且長邊絕對不超過 400
             T.RandomSelect(
-                T.RandomResize(scales, max_size=1333),
+                T.RandomResize(scales, max_size=600),
                 T.Compose([
+                    # 可選的微幅裁剪，增加模型對物件不完整的魯棒性
                     T.RandomResize([400, 500, 600]),
                     T.RandomSizeCrop(384, 600),
-                    T.RandomResize(scales, max_size=1333),
+                    T.RandomResize(scales, max_size=600),
                 ])
             ),
+            CustomColorJitter(p=0.5),
+            CustomGaussianBlur(p=0.3),
+            CustomRandomGrayscale(p=0.2),
             normalize,
         ])
 
     if image_set == 'val':
         return T.Compose([
-            T.RandomResize([800], max_size=1333),
+            # 驗證集固定短邊尺寸，但同樣限制長邊不超過 400
+            T.RandomResize([384], max_size=600),
             normalize,
         ])
 
@@ -157,9 +194,8 @@ def build(image_set, args):
     assert root.exists(), f'provided COCO path {root} does not exist'
     mode = 'instances'
     PATHS = {
-        "train": (root / "images" / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-        "val": (root / "images" / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-        "test": (root / "images" / "test2017", root / "annotations" / f'image_info_test-dev2017.json'),
+        "train": (root / "train", root / "train.json"),
+        "val": (root / "valid", root / "valid.json"),
     }
 
     img_folder, ann_file = PATHS[image_set]

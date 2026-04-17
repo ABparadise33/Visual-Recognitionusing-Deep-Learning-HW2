@@ -15,6 +15,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from torchvision.ops import complete_box_iou_loss
+
 from util import box_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate,
@@ -25,6 +27,7 @@ from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .transformer import build_transformer
+
 
 
 class ConditionalDETR(nn.Module):
@@ -184,10 +187,17 @@ class SetCriterion(nn.Module):
         losses = {}
         losses['loss_bbox'] = loss_bbox.sum() / num_boxes
 
-        loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
-            box_ops.box_cxcywh_to_xyxy(src_boxes),
-            box_ops.box_cxcywh_to_xyxy(target_boxes)))
-        losses['loss_giou'] = loss_giou.sum() / num_boxes
+        #test ciou loss
+        #loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
+        #    box_ops.box_cxcywh_to_xyxy(src_boxes),
+        #    box_ops.box_cxcywh_to_xyxy(target_boxes)))
+        #losses['loss_giou'] = loss_giou.sum() / num_boxes
+
+        loss_ciou = complete_box_iou_loss(
+        box_ops.box_cxcywh_to_xyxy(src_boxes),
+        box_ops.box_cxcywh_to_xyxy(target_boxes),
+        reduction='none')
+        losses['loss_giou'] = loss_ciou.sum() / num_boxes
         return losses
 
     def loss_masks(self, outputs, targets, indices, num_boxes):
@@ -342,11 +352,8 @@ def build(args):
     # you should pass `num_classes` to be 2 (max_obj_id + 1).
     # For more details on this, check the following discussion
     # https://github.com/facebookresearch/detr/issues/108#issuecomment-650269223
-    num_classes = 20 if args.dataset_file != 'coco' else 91
-    if args.dataset_file == "coco_panoptic":
-        # for panoptic, we just add a num_classes that is large enough to hold
-        # max_obj_id + 1, but the exact value doesn't really matter
-        num_classes = 250
+    num_classes = 11
+    
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
