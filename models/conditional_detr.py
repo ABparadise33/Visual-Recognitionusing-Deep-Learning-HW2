@@ -191,12 +191,15 @@ class SetCriterion(nn.Module):
         loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
             box_ops.box_cxcywh_to_xyxy(src_boxes),
             box_ops.box_cxcywh_to_xyxy(target_boxes)))
+        losses['loss_giou'] = loss_giou.sum() / num_boxes 
+        
         #test ciou loss
         loss_ciou = complete_box_iou_loss(
             box_ops.box_cxcywh_to_xyxy(src_boxes),
             box_ops.box_cxcywh_to_xyxy(target_boxes),
         reduction='none')
-        losses['loss_giou'] = loss_giou.sum() / num_boxes 
+        losses['loss_ciou'] = loss_ciou.sum() / num_boxes 
+        
         return losses
 
     def loss_masks(self, outputs, targets, indices, num_boxes):
@@ -371,6 +374,8 @@ def build(args):
     matcher = build_matcher(args)
     weight_dict = {'loss_ce': args.cls_loss_coef, 'loss_bbox': args.bbox_loss_coef}
     weight_dict['loss_giou'] = args.giou_loss_coef
+    weight_dict['loss_ciou'] = args.ciou_loss_coef
+    
     if args.masks:
         weight_dict["loss_mask"] = args.mask_loss_coef
         weight_dict["loss_dice"] = args.dice_loss_coef

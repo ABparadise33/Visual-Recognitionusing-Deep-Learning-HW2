@@ -42,7 +42,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
-        # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         loss_dict_reduced_unscaled = {f'{k}_unscaled': v
                                       for k, v in loss_dict_reduced.items()}
@@ -63,14 +62,11 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
 
-
-        # 新的寫法：過濾掉中間層 (_0 ~ _4) 的輸出，且不印出 unscaled
         clean_scaled_losses = {k: v for k, v in loss_dict_reduced_scaled.items() if not k[-1].isdigit()}
         metric_logger.update(loss=loss_value, **clean_scaled_losses)
         metric_logger.update(class_error=loss_dict_reduced['class_error'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         
-        # 👇 【請補上這一段】讓 tqdm 進度條右邊即時顯示 Loss 與錯誤率
         pbar.set_postfix({
             'Loss': f"{loss_value:.3f}", 
             'Class_Err': f"{loss_dict_reduced['class_error'].item():.2f}%"
@@ -94,7 +90,6 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
     iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
-    # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
     panoptic_evaluator = None
     if 'panoptic' in postprocessors.keys():
@@ -112,22 +107,17 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
 
-        # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         loss_dict_reduced_scaled = {k: v * weight_dict[k]
                                     for k, v in loss_dict_reduced.items() if k in weight_dict}
         loss_dict_reduced_unscaled = {f'{k}_unscaled': v
                                       for k, v in loss_dict_reduced.items()}
-        # 找到這兩行：
-        # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
-        # metric_logger.update(class_error=loss_dict_reduced['class_error'])
         loss_value = sum(loss_dict_reduced_scaled.values()).item()
-        # 替換為過濾版本，並更新進度條：
+
         clean_scaled_losses = {k: v for k, v in loss_dict_reduced_scaled.items() if not k[-1].isdigit()}
         metric_logger.update(loss=loss_value, **clean_scaled_losses)
         metric_logger.update(class_error=loss_dict_reduced['class_error'])
         
-        # 👇 【新增這段】更新 tqdm 右側資訊
         pbar.set_postfix({
             'Loss': f"{loss_value:.3f}", 
             'Class_Err': f"{loss_dict_reduced['class_error'].item():.2f}%"
@@ -152,7 +142,6 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
             panoptic_evaluator.update(res_pano)
 
-    # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     if coco_evaluator is not None:
@@ -160,7 +149,6 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     if panoptic_evaluator is not None:
         panoptic_evaluator.synchronize_between_processes()
 
-    # accumulate predictions from all images
     if coco_evaluator is not None:
         coco_evaluator.accumulate()
         coco_evaluator.summarize()

@@ -32,7 +32,7 @@ def resize_image(image: Image.Image, short_size: int = 384, max_size: int = 600)
     return image.resize((ow, oh), Image.Resampling.BILINEAR)
 
 def main() -> None:
-    checkpoint_path = 'output/cond_detr_digit_v6/checkpoint_best.pth' # 請確認路徑
+    checkpoint_path = 'output/cond_detr_digit_v7/checkpoint_best.pth'
     image_dir = 'data/test'
     output_json = 'pred.json'
 
@@ -42,7 +42,6 @@ def main() -> None:
     args = checkpoint['args']
     args.device = str(device)
 
-    # 取得模型與內建的 postprocessors
     model, _, postprocessors = build_model(args)
     model.load_state_dict(checkpoint['model'])
     model.to(device)
@@ -68,19 +67,14 @@ def main() -> None:
             
             outputs = model(img_tensor)
 
-            # ⭐ 核心修正：直接呼叫內建 PostProcess，完美對齊 Validation 邏輯
-            # 注意傳入的是 [h, w]
             orig_target_sizes = torch.tensor([[orig_h, orig_w]], device=device)
             results = postprocessors['bbox'](outputs, orig_target_sizes)
             
-            # 取得單張圖片的結果
             r = results[0]
             
-            # 將 [x1, y1, x2, y2] 轉為 COCO 格式的 [x, y, w, h]
             for score, label, box in zip(r['scores'], r['labels'], r['boxes']):
                 x1, y1, x2, y2 = box.tolist()
                 
-                # 再次確保不輸出類別 0 (雖然分數極低，但保險起見直接過濾)
                 cat_id = int(label.item())
                 if cat_id == 0:
                     continue
@@ -92,7 +86,6 @@ def main() -> None:
                     "category_id": cat_id
                 })
 
-    # 依照 image_id 與 score 排序
     predictions.sort(key=lambda x: (x["image_id"], -x["score"]))
 
     with open(output_json, 'w', encoding='utf-8') as f:

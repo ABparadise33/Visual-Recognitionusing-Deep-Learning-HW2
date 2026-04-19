@@ -86,6 +86,7 @@ def get_args_parser():
     parser.add_argument('--cls_loss_coef', default=2, type=float)
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
+    parser.add_argument('--ciou_loss_coef', default=0, type=float) 
     parser.add_argument('--focal_alpha', default=0.25, type=float)
 
     # dataset parameters
@@ -168,7 +169,6 @@ def main(args):
                                  drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
     if args.dataset_file == "coco_panoptic":
-        # We also evaluate AP during panoptic training, on original coco DS
         coco_val = datasets.coco.build("val", args)
         base_ds = get_coco_api_from_dataset(coco_val)
     else:
@@ -228,7 +228,6 @@ def main(args):
         )
         
         if coco_evaluator is not None and args.output_dir and utils.is_main_process():
-            # stats[0] 對應的就是 COCO AP (IoU=0.50:0.95)
             current_map = coco_evaluator.coco_eval["bbox"].stats[2]
             if current_map > best_map:
                 best_map = current_map
@@ -250,7 +249,6 @@ def main(args):
             with (output_dir / "log.txt").open("a") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
-            # for evaluation logs
             if coco_evaluator is not None:
                 (output_dir / 'eval').mkdir(exist_ok=True)
                 if "bbox" in coco_evaluator.coco_eval:
