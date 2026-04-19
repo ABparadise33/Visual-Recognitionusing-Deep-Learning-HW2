@@ -1,90 +1,115 @@
-# Conditional DETR for Digit Detection (VR 2026 Spring HW2)
+# NYCU Visual Recognition using Deep Learning HW2
 
-本專案將 **Conditional DETR** 應用於 2026 春季課程「Visual Recognition using Deep Learning」的 Homework 2：Digit Detection 任務。
+**Student ID:** 314554035
+**Name:** 張翊鞍
 
-## 任務簡介
-- **目標**：偵測影像中的數字。
-- **評分標準**：
-    - CodaBench 競賽表現 (80%)
-    - 程式碼品質與可靠性 (5%)
-    - 報告與方法說明 (15%)
+## Introduction
+This repository contains the implementation for NYCU 2026 Spring Visual Recognition using Deep Learning Homework 2: **Digit Detection**.
 
-## 方法說明 (Methodology)
-本實驗採用 **Conditional DETR** 作為基準模型。相較於原始 DETR，Conditional DETR 透過解耦內容與空間查詢 (Content and Spatial Queries)，能更快收斂並獲得更精確的邊界框預測，適合用於數字偵測這種對於空間位置敏感的任務。
+The final solution is built upon **Conditional DETR** with a **ResNet-50** backbone (ImageNet pretrained). The model is adapted to a digit-detection setting with 10 foreground classes (digits 0–9) on a SVHN-style dataset of 46,470 images.
 
-## 環境安裝
-建議使用 `conda` 或 `virtualenv` 建立環境：
+Key modifications from the vanilla Conditional DETR:
 
+1. **IoU-aware loss fusion**: the bounding-box regression loss is extended from `L1 + GIoU` to `L1 + GIoU + CIoU`, with coefficients rebalanced (bbox : giou : ciou = 7 : 1 : 3) to put more pressure on strict-IoU localisation.
+2. **Dataset-aware multi-scale training**: training short-side scales are chosen in `[128, 512]` with `max_size=600` to match the dataset's actual image statistics (median 111×49, p99 max-side = 489) instead of the 480–1333 range used for COCO.
+3. **Light photometric augmentation**: `ColorJitter`, `GaussianBlur`, and `RandomGrayscale` are added to improve robustness to illumination and colour variance typical of street-view digits.
+4. **Digit-specific hyper-parameters**: `num_queries=30` (≈5× the observed max of 6 digits per image) and `num_classes=11` (10 digits + background slot).
+
+All inference is done through the same `PostProcess` used during validation, so the predictions submitted to CodaBench follow exactly the same code path as the internal mAP evaluation.
+
+## Environment Setup
+It is recommended to use Python 3.9 or higher with a virtual environment (e.g., Conda, Poetry, or Virtualenv).
+
+To install the required dependencies, run:
 ```bash
-# 安裝必要套件
 pip install -r requirements.txt
 ```
 
-*主要依賴項包含：PyTorch, torchvision, pycocotools, scipy 等。*
+Main dependencies:
+- PyTorch >= 1.7.0
+- torchvision >= 0.6.1
+- pycocotools
+- Cython, scipy, termcolor, tqdm, matplotlib
 
-## 資料集準備
-請依照以下目錄結構存放資料（此路徑已加入 `.gitignore`，不會上傳至 GitHub）：
+## Usage
 
+### Dataset Preparation
+Please ensure the dataset is placed in the root directory under the `./data` folder with the following structure:
 ```text
-data/
-  ├── train/         # 訓練集圖片
-  ├── val/           # 驗證集圖片
-  └── annotations/   # COCO 格式的標註檔
+.
+├── data/
+│   ├── train/            # training images
+│   ├── valid/            # validation images
+│   ├── test/             # test images (for CodaBench submission)
+│   ├── train.json        # COCO-format training labels
+│   └── valid.json        # COCO-format validation labels
 ```
+Notes on the label format:
+- Bounding boxes are given in `[x_min, y_min, w, h]` (unnormalised).
+- `category_id` starts from 1 (i.e., digits 0–9 are mapped to ids 1–10).
 
-## 訓練模型 (Training)
-使用以下指令啟動訓練（以 ResNet-50 為骨幹網路）：
-
+### Training
+To train the final model (Conditional DETR with the GIoU + CIoU fused loss):
+For example:
 ```bash
 python main.py \
-    --dataset_file coco \
-    --coco_path ./data \
-    --output_dir ./output \
-    --resume [PRETRAINED_WEIGHT_PATH]
+    --coco_path data \
+    --output_dir output/cond_detr_digit \
+    --batch_size 2 \
+    --epochs 50 \
+    --lr_drop 40 \
+    --num_queries 30 \
+    --bbox_loss_coef 7 \
+    --giou_loss_coef 1 \
+    --ciou_loss_coef 3 \
+    --set_cost_bbox 7 \
+    --set_cost_giou 3
 ```
+- The training log is written to `output/cond_detr_digit/log.txt` (one JSON object per epoch).
+- The best checkpoint (by validation mAP @ 0.75) is saved as `checkpoint_best.pth`.
 
-## 推論與提交 (Inference)
-執行 `inference.py` 產生預測結果，以利提交至 CodaBench 平台：
-
+### Inference
+To generate the CodaBench submission file on the test set:
 ```bash
-python inference.py \
-    --resume ./output/checkpoint.pth \
-    --image_path ./data/test \
-    --output_json predictions.json
+python inference.py
+```
+- The script loads `output/cond_detr_digit/checkpoint_best.pth`.
+- All images in `data/test/` are resized (short-side 384, max-side 600) and passed through the model.
+- The built-in `PostProcess` is used so that inference is identical to the validation-time evaluation.
+- Predictions are written to `pred.json` in COCO format (`image_id`, `bbox=[x, y, w, h]`, `score`, `category_id`).
+
+### Visualization
+
+Plot training curves:
+```bash
+python plot_loss_curves.py \
+    --log output/cond_detr_digit/log.txt \
+    --out assets/loss_curves.png
 ```
 
-## 目錄架構
-- `models/`: 包含 Conditional DETR 的模型定義。
-- `datasets/`: 包含 COCO 格式資料載入器。
-- `util/`: 包含 Bounding Box 運算與分散式訓練工具。
-- `output/`: 訓練過程中的權重檔（已設定排除上傳 `.pth`）。
-- `inference.py`: 用於產生測試集預測結果。
-
-## 程式碼規範
-本專案遵循：
-- **PEP8** 規範。
-- **Google Python Style Guide**。
-- 提供乾淨的訓練與推論指令說明。
-
-## 引用
-```bibtex
-@inproceedings{meng2021conditional,
-  title={Conditional DETR for Fast Training Convergence},
-  author={Meng, Depu and Chen, Xiaokang and Zhang, Zejia and Hou, Liang and Wu, Jianfei and Wang, Xuejin and He, Nanyue and Zhang, Bin and Shen, Jianfeng},
-  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision},
-  pages={3651--3660},
-  year={2021}
-}
+Plot a detection-style confusion matrix (rows = GT, cols = prediction, last row/col = background = FN/FP):
+```bash
+python plot_confusion_matrix.py \
+    --checkpoint output/cond_detr_digit_v7/checkpoint_best.pth \
+    --coco_path data \
+    --out assets/confusion_matrix_v7.png \
+    --drop_classes 0          # drop the unused class-0 row/col
 ```
 
----
+## Performance Snapshot
 
-### 如何編輯與上傳：
-1. 在 Vast.ai 的 Terminal 輸入：`nano README.md`
-2. 將上面的內容貼上，按 `Ctrl+O` 存檔，`Ctrl+X` 離開。
-3. 執行 Git 上傳步驟：
-   ```bash
-   git add README.md
-   git commit -m "docs: add README for HW2 digit detection"
-   git push origin main
-   ```
+CodaBench public-leaderboard score (mAP @ IoU=0.50:0.95):
+
+![Leaderboard Snapshot](./assets/leaderboard.png)
+
+Training curves :
+
+![Training Curves](./assets/v7_curves.png)
+
+## References
+
+1. Meng, D. et al. *Conditional DETR for Fast Training Convergence*, ICCV 2021. [[paper]](https://arxiv.org/abs/2108.06152) [[official code]](https://github.com/Atten4Vis/ConditionalDETR)
+2. Carion, N. et al. *End-to-End Object Detection with Transformers (DETR)*, ECCV 2020. [[paper]](https://arxiv.org/abs/2005.12872)
+3. Zheng, Z. et al. *Distance-IoU Loss: Faster and Better Learning for Bounding Box Regression*, AAAI 2020. [[paper]](https://arxiv.org/abs/1911.08287)
+
+This implementation is adapted from the official Conditional DETR repository. The backbone, transformer, and matcher modules follow the original code; the loss function, training transforms, data pipeline, and inference script are modified for the digit-detection task.
