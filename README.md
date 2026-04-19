@@ -1,7 +1,7 @@
 # NYCU Visual Recognition using Deep Learning HW2
 
-**Student ID:** 314554035
-**Name:** 張翊鞍
+**Student ID:** [314554035]
+**Name:** [張翊鞍]
 
 ## Introduction
 This repository contains the implementation for NYCU 2026 Spring Visual Recognition using Deep Learning Homework 2: **Digit Detection**.
