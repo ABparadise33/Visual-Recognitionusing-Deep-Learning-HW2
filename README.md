@@ -1,6 +1,6 @@
 # NYCU Visual Recognition using Deep Learning HW2
 
-**Student ID:** [314554035]
+**Student ID:** [314554035]  
 **Name:** [張翊鞍]
 
 ## Introduction
@@ -105,6 +105,10 @@ CodaBench public-leaderboard score (mAP @ IoU=0.50:0.95):
 Training curves :
 
 ![Training Curves](./assets/v7_curves.png)
+
+Confusion matrix :
+
+![Confusion_Matrix](./assets/cm_v7.png)
 
 ## References
 
