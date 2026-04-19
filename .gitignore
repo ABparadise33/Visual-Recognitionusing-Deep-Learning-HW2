@@ -1,22 +1,5 @@
-.nfs*
-*.ipynb
+# misc
+__pycache__/
 *.pyc
-.dumbo.json
+.venv/
 .DS_Store
-.*.swp
-*.pth
-**/__pycache__/**
-.ipynb_checkpoints/
-datasets/data/
-experiment-*
-*.tmp
-*.pkl
-**/.mypy_cache/*
-.mypy_cache/*
-not_tracked_dir/
-.vscode
-output/
-imgs/
-figs/
-logs/
-plot*.py
